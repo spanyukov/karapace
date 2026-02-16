@@ -3,18 +3,32 @@ Copyright (c) 2024 Aiven Ltd
 See LICENSE for details
 """
 
+import logging
+import re
 from collections.abc import Awaitable, Callable
+
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
-from karapace.api.content_type import check_schema_headers
-from karapace.api.telemetry.middleware import setup_telemetry_middleware
 
+from karapace.api.content_type import check_schema_headers
 from karapace.api.oidc.middleware import OIDCMiddleware
+from karapace.api.telemetry.middleware import setup_telemetry_middleware
 from karapace.core.auth import AuthenticationError
 from karapace.core.config import Config
-import logging
 
 log = logging.getLogger(__name__)
+
+
+def _should_skip_auth(path: str, skip_patterns: list[str]) -> bool:
+    for pattern in skip_patterns:
+        if path == pattern:
+            return True
+        try:
+            if re.match(pattern, path):
+                return True
+        except re.error:
+            continue
+    return False
 
 
 def setup_middlewares(app: FastAPI, config: Config) -> None:
@@ -39,8 +53,8 @@ def setup_middlewares(app: FastAPI, config: Config) -> None:
             request._headers = new_headers
             request.scope.update(headers=request.headers.raw)
 
-        # Check for skip paths like /_health and /metrics and bypass
-        if request.url.path in config.sasl_oauthbearer_skip_auth_paths:
+        # Check for skip paths with regex pattern matching
+        if _should_skip_auth(request.url.path, config.sasl_oauthbearer_skip_auth_paths):
             return await call_next(request)
 
         # Check for bearer token in header
