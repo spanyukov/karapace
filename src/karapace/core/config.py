@@ -7,22 +7,22 @@ See LICENSE for details
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from copy import deepcopy
-from typing import Literal
-
-from karapace.core.constants import DEFAULT_AIOHTTP_CLIENT_MAX_SIZE, DEFAULT_PRODUCER_MAX_REQUEST, DEFAULT_SCHEMA_TOPIC
-from karapace.core.typing import ElectionStrategy, NameStrategy
-from karapace.core.utils import json_encode
-from pathlib import Path
-from pydantic import BaseModel, ImportString, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
-
 import enum
 import logging
 import os
 import socket
 import ssl
+from collections.abc import Mapping
+from copy import deepcopy
+from pathlib import Path
+from typing import Literal
+
+from pydantic import BaseModel, ImportString, field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from karapace.core.constants import DEFAULT_AIOHTTP_CLIENT_MAX_SIZE, DEFAULT_PRODUCER_MAX_REQUEST, DEFAULT_SCHEMA_TOPIC
+from karapace.core.typing import ElectionStrategy, NameStrategy
+from karapace.core.utils import json_encode
 
 HOSTNAME = socket.gethostname()
 
