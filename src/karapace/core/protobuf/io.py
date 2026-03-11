@@ -5,8 +5,21 @@ See LICENSE for details
 
 from __future__ import annotations
 
+import functools
+import hashlib
+import importlib
+import importlib.util
+import logging
+import subprocess
+import sys
 from collections.abc import Generator, Iterable
 from io import BytesIO
+from multiprocessing import Process, Queue
+from pathlib import Path
+from typing import Final, Protocol, TypeAlias
+
+from typing_extensions import Self
+
 from karapace.core.config import Config
 from karapace.core.protobuf.encoding_variants import read_indexes, write_indexes
 from karapace.core.protobuf.exception import (
@@ -18,16 +31,79 @@ from karapace.core.protobuf.message_element import MessageElement
 from karapace.core.protobuf.protobuf_to_dict import dict_to_protobuf, protobuf_to_dict
 from karapace.core.protobuf.schema import ProtobufSchema
 from karapace.core.protobuf.type_element import TypeElement
-from multiprocessing import Process, Queue
-from pathlib import Path
-from typing import Final, Protocol, TypeAlias
-from typing_extensions import Self
 
-import hashlib
-import importlib
-import importlib.util
-import subprocess
-import sys
+# Standard locations for Google protobuf includes
+GOOGLE_PROTOBUF_CANDIDATE_PATHS: Final = [
+    "/usr/include",
+    "/usr/local/include",
+]
+
+log = logging.getLogger(__name__)
+
+
+@functools.cache
+def find_protobuf_include() -> str | None:
+    """Discover the Google protobuf include directory.
+
+    This function searches for the directory containing Google's well-known .proto files
+    (like google/protobuf/timestamp.proto) in standard system locations.
+
+    Returns:
+        Absolute path to the include directory, or None if not found.
+
+    The function checks these locations in order:
+    1. Standard system paths (/usr/include, /usr/local/include)
+    2. pkg-config output (if available)
+    3. grpc_tools package (if installed)
+
+    Each candidate path is verified to contain google/protobuf/timestamp.proto
+    before being accepted.
+    """
+    # Check standard system paths first
+    for candidate in GOOGLE_PROTOBUF_CANDIDATE_PATHS:
+        candidate_path = Path(candidate)
+        timestamp_proto = candidate_path / "google" / "protobuf" / "timestamp.proto"
+        if timestamp_proto.exists():
+            return str(candidate_path.resolve())
+
+    # Try pkg-config if available
+    try:
+        result = subprocess.run(
+            ["pkg-config", "--variable=includedir", "protobuf"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            pkg_config_path = Path(result.stdout.strip())
+            timestamp_proto = pkg_config_path / "google" / "protobuf" / "timestamp.proto"
+            if timestamp_proto.exists():
+                return str(pkg_config_path.resolve())
+    except (subprocess.SubprocessError, FileNotFoundError, OSError):
+        pass  # pkg-config not available or failed
+
+    # Try grpc_tools as fallback
+    # Note: _get_resource_dir is a private API that could change in future grpc_tools versions.
+    # If this breaks, consider using importlib.resources.files("grpc_tools") / "_proto" instead.
+    try:
+        import grpc_tools.protoc
+
+        grpc_include = Path(grpc_tools.protoc._get_resource_dir("grpc_tools"))
+        timestamp_proto = grpc_include / "google" / "protobuf" / "timestamp.proto"
+        if timestamp_proto.exists():
+            return str(grpc_include.resolve())
+    except (ImportError, AttributeError, OSError):
+        pass  # grpc_tools not available or doesn't have the expected structure
+
+    # No valid include path found
+    log.warning(
+        "Could not find Google protobuf include directory. "
+        "Searched: %s, pkg-config, and grpc_tools. "
+        "Protobuf schemas importing google.protobuf.* may fail to compile.",
+        GOOGLE_PROTOBUF_CANDIDATE_PATHS,
+    )
+    return None
 
 
 def calculate_class_name(name: str) -> str:
@@ -119,11 +195,30 @@ def get_protobuf_class_instance(
         with open(f"{directory}/{proto_name}/{proto_name}.proto", mode="w", encoding="utf8") as proto_text:
             proto_text.write(replace_imports(str(schema), deps_list))
 
-        protoc_arguments = [
+        # Discover Google protobuf include path
+        google_include_path = find_protobuf_include()
+        if google_include_path is None and 'import "google/protobuf/' in str(schema):
+            log.warning(
+                "Google protobuf include directory not found. "
+                "If your schema imports google.protobuf.* types, "
+                "protoc compilation may fail with 'File not found' errors."
+            )
+
+        protoc_arguments: list[str] = [
             "protoc",
+            "--proto_path=.",  # Always include current directory for imports
+        ]
+
+        # Add --proto_path for Google well-known types BEFORE --python_out
+        # This must be an absolute path since protoc runs in work_dir
+        if google_include_path is not None:
+            protoc_arguments.append(f"--proto_path={google_include_path}")
+
+        protoc_arguments.extend([
             "--python_out=./",
             main_proto_filename,
-        ]
+        ])
+
         for value in deps_list.values():
             proto_file_name = value["unique_class_name"] + ".proto"
             dependency_path = f"{directory}/{proto_name}/{proto_file_name}"
@@ -132,11 +227,23 @@ def get_protobuf_class_instance(
                 proto_text.write(replace_imports(value["schema"], deps_list))
 
         if not class_path.is_file():
-            subprocess.run(
-                protoc_arguments,
-                check=True,
-                cwd=work_dir,
-            )
+            try:
+                subprocess.run(
+                    protoc_arguments,
+                    check=True,
+                    cwd=work_dir,
+                )
+            except subprocess.CalledProcessError as e:
+                log.error(
+                    "protoc compilation failed. "
+                    "If the error mentions 'google/protobuf/*.proto: File not found', "
+                    "ensure protobuf-compiler is installed with Google well-known types. "
+                    "On Debian/Ubuntu: apt-get install protobuf-compiler. "
+                    "On macOS with Homebrew: brew install protobuf. "
+                    "Command: %s",
+                    " ".join(protoc_arguments),
+                )
+                raise
 
     runtime_proto_path = str(work_dir.resolve())
     if runtime_proto_path not in sys.path:
