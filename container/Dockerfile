@@ -38,11 +38,13 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 
 # Karapace image, i.e. production.
 FROM builder AS karapace
-# Install protobuf compiler.
+# Install protobuf compiler and development headers.
 ARG PROTOBUF_COMPILER_VERSION="3.12.4-1+deb11u1"
+ARG PROTOBUF_DEV_VERSION="3.12.4-1+deb11u1"
 RUN apt-get update \
     && apt-get install --assume-yes --no-install-recommends \
     protobuf-compiler=$PROTOBUF_COMPILER_VERSION \
+    libprotobuf-dev=$PROTOBUF_DEV_VERSION \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy virtualenv from builder and activate it.
