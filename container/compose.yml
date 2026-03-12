@@ -351,6 +351,7 @@ services:
       - --import-realm
     volumes:
       - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json
+      - keycloak_data:/opt/keycloak/data
     ports:
       - "10.0.7.254:8383:8080"
     extra_hosts:
@@ -393,3 +394,4 @@ networks:
 
 volumes:
   kafka_data:
+  keycloak_data:

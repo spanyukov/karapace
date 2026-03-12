@@ -7,7 +7,6 @@ ARG KARAPACE_VERSION
 RUN python3 -m venv /venv
 ENV PATH="/venv/bin:$PATH"
 ENV PIP_REQUIRE_VIRTUALENV=true
-RUN python3 -m pip install --upgrade pip
 
 # Install golang needed by extensions
 ENV GO_VERSION=1.21.0
@@ -29,7 +28,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 COPY . /build/karapace-repo
 WORKDIR /build/karapace-repo
 RUN --mount=type=cache,target=/root/.cache/pip \
-    if [ -z "${KARAPACE_VERSION}" ]; then \
+    if [ -z "${KARAPACE_VERSION}" ] || [ "${KARAPACE_VERSION}" = "latest" ]; then \
     PRETEND_VERSION="$(python -c 'from src.karapace import version; print(version.__version__)')"; \
     else \
     PRETEND_VERSION=$KARAPACE_VERSION; \
@@ -81,7 +80,12 @@ COPY ./requirements /opt/karapace/requirements
 RUN python3 -m pip install --no-dependencies -r /opt/karapace/requirements/requirements-dev.txt -r /opt/karapace/requirements/requirements-typing.txt
 
 COPY . .
-RUN SETUPTOOLS_SCM_PRETEND_VERSION=$KARAPACE_VERSION python3 -m pip install --no-deps .
+RUN if [ -z "${KARAPACE_VERSION}" ] || [ "${KARAPACE_VERSION}" = "latest" ]; then \
+    PRETEND_VERSION="$(python -c 'from src.karapace import version; print(version.__version__)')"; \
+    else \
+    PRETEND_VERSION=$KARAPACE_VERSION; \
+    fi; \
+    SETUPTOOLS_SCM_PRETEND_VERSION=$PRETEND_VERSION python3 -m pip install --no-deps --ignore-installed .
 ENV PYTHONPATH="/opt/karapace/src:$PYTHONPATH"
 
 
