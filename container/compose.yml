@@ -23,7 +23,7 @@ services:
       KAFKA_LISTENERS: "PLAINTEXT://kafka:29092,CONTROLLER://kafka:29093,PLAINTEXT_HOST://0.0.0.0:9092"
       KAFKA_INTER_BROKER_LISTENER_NAME: "PLAINTEXT"
       KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
-      KAFKA_LOG_DIRS: "/tmp/kraft-combined-logs"
+      KAFKA_LOG_DIRS: "/var/lib/kafka/data"
       KAFKA_MAX_MESSAGE_BYTES: 104857600
       KAFKA_MESSAGE_MAX_BYTES: 104857600
       KAFKA_BUFFER_MEMORY: 104857600
@@ -39,7 +39,7 @@ services:
       KAFKA_NUM_PARTITIONS: 1
       KAFKA_CONFLUENT_SCHEMA_REGISTRY_URL: http://karapace-schema-registry:8081
     volumes:
-      - kafka_data:/tmp/kraft-combined-logs
+      - kafka_data:/var/lib/kafka/data
     extra_hosts:
       - "local.sd1:10.0.7.254"
 
